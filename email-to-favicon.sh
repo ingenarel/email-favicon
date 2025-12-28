@@ -1,10 +1,7 @@
 #!/usr/bin/sh
 
 [ -z "$CACHE_PATH" ] && CACHE_PATH="$HOME/.cache/emailfind"
-[ -z "$DOMAIN_IGNORE" ] && DOMAIN_IGNORE='archlinux\.org'
-[ -z "$TOR_SKIP" ] && TOR_SKIP='patreon\.com'
-
-[ ! -d "$CACHE_PATH" ] && mkdir --parents "$CACHE_PATH"
+[ -z "$DOMAIN_IGNORE" ] && DOMAIN_IGNORE='(archlinux\.org|patreon)'
 
 if [ "$1" = true ]; then
     _USETOR=true
@@ -12,14 +9,18 @@ else
     _USETOR=false
 fi
 
+export _USETOR
+
 toTorOrNotToTor(){
     if [ "$_USETOR" = true ]; then
         echo "using tor to run " "$@" >&2
         torsocks "$@"
     elif [ "$_USETOR" = 'skipthisone' ]; then
+        echo "using clear net to run and later switch to tor " "$@" >&2
         "$@"
         _USETOR=true
     else
+        echo "using clear net to run " "$@" >&2
         "$@"
     fi
 }
@@ -35,14 +36,11 @@ domainLink="https://$domainName/"
 echo "domainLink: $domainLink" >&2
 
 icoPath="$CACHE_PATH/$(echo "$originalDomainName" | sha256sum | awk '{print $1}' )"
+[ ! -d "$icoPath" ] && mkdir --parents "$icoPath"
 echo "icoPath: $icoPath" >&2
 
 # ignore arch manually for now
-[ ! -f "$icoPath" ] && echo "$domainName" | grep -v -q -E "$DOMAIN_IGNORE" && {
-    echo "$domainName" | grep -q -E "$TOR_SKIP" && {
-        _USETOR=false
-        torChanged=true
-    }
+[ -z "$( find "$icoPath" -type f,l )" ] && echo "$domainName" | grep -v -q -E "$DOMAIN_IGNORE" && {
     while echo "$domainLink" | grep -q -E '[^.]+\.([^.]+\.)+[^.]+$'; do
         toTorOrNotToTor curl --silent --out-null "$domainLink" &&
         break ||
@@ -52,7 +50,8 @@ echo "icoPath: $icoPath" >&2
     newIcoPath="${domainLink#https://}"
     newIcoPath="${newIcoPath%/}"
     [ "$domainChanged" = true ] && newIcoPath="$CACHE_PATH/$( echo "$newIcoPath" | sha256sum | awk '{print $1}' )"
-    if [ -f "$newIcoPath" ]; then
+    if [ -d "$newIcoPath" ]; then
+        rm -rf "$icoPath"
         ln -srf "$newIcoPath" "$icoPath"
     else
         while true; do
@@ -65,30 +64,32 @@ echo "icoPath: $icoPath" >&2
                 "$domainLink" |
             grep -oE 'https?://[^/]+/'
         )"
-            if ! toTorOrNotToTor wget --quiet "${domainLink}favicon.ico" -O "$icoPath"; then
+            if ! toTorOrNotToTor wget --quiet "${domainLink}favicon.ico" --directory-prefix "$icoPath"; then
                 RFC5988IconLinks="$(toTorOrNotToTor curl --silent "$domainLink" | sed -n -E 's:.*<link\s+rel="icon"\s+type="image/\S+"\s+href="([^"]+)".+:\1:p' )"
                 if [ -n "$RFC5988IconLinks" ]; then
                     echo "$RFC5988IconLinks" | while IFS='' read -r line; do
-                        toTorOrNotToTor wget --quiet "$domainLink$line" -O "$icoPath" && break
+                        toTorOrNotToTor wget --quiet "$domainLink$line" --directory-prefix "$icoPath" && break
                     done
                 fi
                 # toTorOrNotToTor wget --quiet "$(
                 #     toTorOrNotToTor curl --silent --follow "$domainLink" | grep -o -E 'https://\S+\.ico'
-                #     )" -O "$icoPath" ||
+                #     )" --directory-prefix "$icoPath" ||
             fi
-            file --mime-type "$icoPath" | grep -q -E '.*: image/\S+*$' && break || {
+            file --mime-type "$icoPath"/* | grep -q -E '.*: image/\S+*$' && break || {
                 if [ "$redirURL" != "$domainLink" ]; then
+                    rm -rf "$icoPath"/*
                     domainLink="$redirURL"
                 else
                     break
                 fi
             }
-            [ "$torChanged" = true ] && {
-                torChanged=false
-                _USETOR=true
-            }
+        done
+        find "$icoPath" -type f,l | while IFS='' read -r line; do
+            extensionName="${line##*.}"
+            mv "$line" "$(dirname "$line")/favicon.$extensionName"
         done
     fi
+
 }
 
 echo "$icoPath"
