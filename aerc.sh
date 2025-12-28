@@ -2,9 +2,23 @@
 
 rootDir="$( realpath --canonicalize-missing "$0/.." )"
 
-faviconPath="$( "$rootDir/email-to-favicon.sh" "$1" "$AERC_FROM_ADDRESS" )"
+domainName="${AERC_FROM_ADDRESS#*@}"
+echo "domainName: $domainName" >&2
 
-pngNames="$( find "$faviconPath" -name '*.png' -printf '%s\t%p\n' )"
+faviconPath="$(
+    if [ "$domainName" = "gmail.com" ]; then
+        "$rootDir/grab-gmail.sh" "$1" "$AERC_FROM_ADDRESS"
+    else
+        "$rootDir/email-to-favicon.sh" "$1" "$AERC_FROM_ADDRESS"
+    fi
+)"
+
+# pngNames="$( find "$faviconPath" -name '*.png' -printf '%s\t%p\n' )"
+pngNames="$(
+    find "$faviconPath"\
+        -exec file --mime-type {} + |
+        awk -F ':' '{ if ( $2 ~ "image/png" ) print $1 }'
+)"
 
 [ -z "$pngNames" ] && magick "$faviconPath/favicon."* -background none "$faviconPath/favicon.png"
 
