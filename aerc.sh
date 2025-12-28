@@ -6,8 +6,11 @@ domainName="${AERC_FROM_ADDRESS#*@}"
 echo "domainName: $domainName" >&2
 
 faviconPath="$(
-    if [ "$domainName" = "gmail.com" ]; then
-        "$rootDir/grab-gmail.sh" "$1" "$AERC_FROM_ADDRESS"
+    unavatarResponse="$( "$rootDir/unavatar.sh" "$1" "$AERC_FROM_ADDRESS" )"
+    if [ -n "$unavatarResponse" ]; then
+        realpath --canonicalize-missing "$unavatarResponse/.."
+    elif [ "$domainName" = "gmail.com" ]; then
+        realpath --canonicalize-missing "$("$rootDir/grab-gmail.sh" "$1" "$AERC_FROM_ADDRESS")/.."
     else
         "$rootDir/email-to-favicon.sh" "$1" "$AERC_FROM_ADDRESS"
     fi

@@ -49,4 +49,3 @@ if [ -z "$imageNames" ]; then
 else
     echo "$imageNames"
 fi
-
